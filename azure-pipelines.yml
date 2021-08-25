@@ -1,0 +1,50 @@
+name: medserve-$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  - '*'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  mavenCache: $(Pipeline.Workspace)/.m2/repository
+  mavenOptions: '-Dmaven.repo.local=$(mavenCache)'
+
+stages:
+  - stage: build
+    displayName: Build
+    jobs:
+      - job: build
+        displayName: Build
+        steps:
+          - task: Cache@2
+            displayName: Cache Maven local repo
+            inputs:
+              key: 'maven | "$(Agent.OS)" | **/pom.xml'
+              restoreKeys: |
+                maven | "$(Agent.OS)"
+                maven
+              path: $(mavenCache)
+          - script: mkdir -p terminology
+          - task: Maven@3
+            displayName: Build and verify
+            inputs:
+              mavenPomFile: 'pom.xml'
+              options: "-P '!docker' -Dsynd.cache.dir=terminology -DDOCKER_USERNAME=$(dockerUserName) -DDOCKER_PASSWORD=$(dockerPassword)"
+              mavenOptions: '-B $(mavenOptions)'
+              javaHomeOption: 'JDKVersion'
+              jdkVersionOption: '1.11'
+              jdkArchitectureOption: 'x64'
+              publishJUnitResults: true
+              testResultsFiles: '**/surefire-reports/TEST-*.xml'
+              goals: 'clean package'
+            timeoutInMinutes: 60
+          - task: Docker@2
+            condition: succeeded()
+            displayName: Push image
+            inputs:
+              containerRegistry: $(serviceConnection)
+              repository: $(registryPath)
+              command: push
+              tags:
+                - latest
